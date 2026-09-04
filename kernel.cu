@@ -6,8 +6,9 @@
 #include<fstream>
 
 #include"vec3.h"
+#include"ray.h"
 
-// CUDA 에러 체크 매크로 - 에러 발생 시 파일 명, 라인 번호와 함께 에러 메시지
+// CUDA 에러 체크 매크로
 #define checkCudaErrors(val) checkCuda((val),#val,__FILE__, __LINE__)
 
 void checkCuda(cudaError_t result, char const* const func, const char* const file, int const line)
@@ -22,7 +23,16 @@ void checkCuda(cudaError_t result, char const* const func, const char* const fil
 }
 
 
-__global__ void render(Vector3* frameBuffer, int maxX, int maxY)
+
+__device__ Color RayColor(const Ray& r)
+{
+	Vector3 unitDirection = UnitVector(r.Direction());
+	double t = 0.5 * (unitDirection.Y() + 1.0);
+	return (1.0 - t) * Color(1.0, 1.0, 1.0) + t * Color(0.5, 0.7, 1.0);
+}
+
+__global__ void render(Vector3* frameBuffer, int maxX, int maxY,
+	Vector3 lowerLeftCorner, Vector3 horizontal, Vector3 vertical, Vector3 origin)
 {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	int j = threadIdx.y + blockIdx.y * blockDim.y;
@@ -30,11 +40,12 @@ __global__ void render(Vector3* frameBuffer, int maxX, int maxY)
 	if ((i >= maxX) || (j >= maxY)) return;
 
 	int pixelIndex = j * maxX + i;
-	frameBuffer[pixelIndex] = Color(
-		double(i) / double(maxX),
-		double(j) / double(maxY),
-		0.2
-	);
+	
+	double u = double(i) / double(maxX);
+	double v = double(j) / double(maxY);
+	Ray r(origin, lowerLeftCorner + u * horizontal + v * vertical);
+	frameBuffer[pixelIndex] = RayColor(r);
+	
 }
 
 
@@ -73,7 +84,11 @@ int main()
 	// blocks : 이미지 전체를 덮도록 블록 수 계산 (올림 나눗셈)
 	dim3 blocks(imageWidth / blockWidth + 1, imageHeight / blockHeight + 1);
 	dim3 threads(blockWidth, blockHeight);
-	render <<<blocks, threads >>> (frameBuffer, imageWidth, imageHeight);
+	render <<<blocks, threads >>> (frameBuffer, imageWidth, imageHeight,
+		Vector3(-2.0,-1.0,-1.0),
+		Vector3(4.0,0.0,0.0),
+		Vector3(0.0,2.0,0.0),
+		Vector3(0.0,0.0,0.0));
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());
 
